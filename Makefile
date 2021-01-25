@@ -80,15 +80,16 @@ VERILOGS_ULX3S = \
  osd/osd.v \
  osd/spi_osd.v \
  osd/spi_ram_btn.v \
- osd/spirw_slave_v.v 
+ osd/spirw_slave_v.v \
+ lcd/lcd_video.v
  
 ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -DLCD_SUPPORT \
+	$(YOSYS) -q -DUSE_SDRAM \
 		-p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" \
 		$(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)
 
-ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
-	$(NEXTPNR_ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
+ti994a_ulx3s.bit: ti994a_ulx3s.json
+	$(NEXTPNR_ECP5) --12k --package CABGA381 --timing-allow-fail --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg
 	$(ECPPACK) --compress ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
 
 
