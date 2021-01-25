@@ -50,23 +50,20 @@ module top_ulx3s
   output        wifi_gpio0,
   output        wifi_en,
 
-  output wire   ftdi_rxd,   // output from FPGA to FTDI
-  input  wire   ftdi_txd,   // input from FTDI to FPGA
+  input         ftdi_txd,   // input from FTDI to FPGA
+  output        ftdi_rxd,   // output from FPGA to FTDI
 
   // for secondary serial port we could use
   // GND, GP27 (output) and GP26 (input)
   input  wire [24:0] gp, 
   output wire gp_25,
   output wire gp_26, 
-  output wire gp_27
-`ifdef LCD_SUPPORT
-  ,
+  output wire gp_27,
   output wire oled_clk,
   output wire oled_mosi,
   output wire oled_dc,
   output wire oled_resn,
   output wire oled_csn,
-`endif
   // Audio DACs (4 bits with the ULX3S)
   output wire [3:0] audio_l,
   output wire [3:0] audio_r
@@ -88,8 +85,7 @@ module top_ulx3s
   #(
       .in_hz( 25*1000000),
     .out0_hz(125*1000000),
-    .out1_hz( 25*1000000),
-    .out2_hz(125*1000000), .out2_deg(90)
+    .out1_hz( 25*1000000)
   )
   ecp5pll_inst
   (
@@ -444,8 +440,8 @@ module top_ulx3s
   wire serloader_tx;
   wire tms9902_tx;
   
-  `define SERIAL_TO_TMS9902
-  // `define SERIAL_TO_ESP
+  // `define SERIAL_TO_TMS9902
+  `define SERIAL_TO_ESP
   `ifndef SERIAL_TO_ESP
     `ifdef SERIAL_TO_TMS9902
       // Here our serial traffic goes to TMS9902
@@ -466,10 +462,12 @@ module top_ulx3s
     assign ftdi_rxd = wifi_txd;
   `endif
 
+/*
 `ifndef SERIAL_TO_TMS9902  
   wire tms9902_rx = gp[26];   // receive from FTDI chip
   assign gp_27 = tms9902_tx;
 `endif
+*/
   // wire serloader_rx = gp[26];     // serloader UART receive GPIO_3;
   // assign gp_27 = serloader_tx;   // serloader UART transit, was GPIO_2  on the FLEA OHM
   // wire tms9902_rx = ftdi_txd;   // receive from FTDI chip
@@ -504,6 +502,7 @@ module top_ulx3s
   assign gp_26 = tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
   wire tipi_led0;           // TIPI status LED (DSR enabled)
 
+/*
 `ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   assign oled_clk = pin_sclk;
@@ -512,6 +511,7 @@ module top_ulx3s
   assign oled_resn = pin_resn;
   assign oled_csn = pin_cs;
 `endif
+*/
   // With ULX3S and current SDRAM controller we don't support byte writes. We could, but this is
   // a good case to test. Hence we pass the parameter zero.
   sys #(0,1) ti994a (
@@ -614,7 +614,7 @@ module top_ulx3s
   // Buffer signals going to the DVI conversion.
   reg [7:0] epr_osd_vga_r, epr_osd_vga_g, epr_osd_vga_b;
   reg epr_osd_vga_hsync, epr_osd_vga_vsync, epr_osd_vga_blank;
-  always @(pll_25mhz)
+  always @(posedge pll_25mhz)
   begin 
     epr_osd_vga_r     <= osd_vga_r;
     epr_osd_vga_g     <= osd_vga_g;
@@ -623,6 +623,7 @@ module top_ulx3s
     epr_osd_vga_vsync <= osd_vga_vsync;
     epr_osd_vga_blank <= osd_vga_blank;
   end
+
 
   wire [1:0] tmds[3:0];
   generate
@@ -658,12 +659,12 @@ module top_ulx3s
   (
     .clk_pixel(pll_25mhz),
     .clk_shift(pll_125mhz),
-    .in_red(osd_vga_r),
-    .in_green(osd_vga_g),
-    .in_blue(osd_vga_b),
-    .in_hsync(osd_vga_hsync),
-    .in_vsync(osd_vga_vsync),
-    .in_blank(osd_vga_blank),
+    .in_red(epr_osd_vga_r),
+    .in_green(epr_osd_vga_g),
+    .in_blue(epr_osd_vga_b),
+    .in_hsync(epr_osd_vga_hsync),
+    .in_vsync(epr_osd_vga_vsync),
+    .in_blank(epr_osd_vga_blank),
     .out_clock(tmds[3]),
     .out_red(tmds[2]),
     .out_green(tmds[1]),
@@ -676,6 +677,75 @@ module top_ulx3s
   ODDRX1F ddr0_green (.D0(tmds[1][0]), .D1(tmds[1][1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
   ODDRX1F ddr0_blue  (.D0(tmds[0][0]), .D1(tmds[0][1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
 
+  // ---------------- ST7789 LCD VIDEO -------------------
+  wire [15:0] lcd_color;
+  assign lcd_color[15:11] = epr_osd_vga_r[7:2];
+  assign lcd_color[10:5]  = epr_osd_vga_g[7:1];
+  assign lcd_color[4:0]   = epr_osd_vga_b[7:2];
 
+  reg [1:0] hsyncedge;
+  reg lcd_line_ena, lcd_pixel_ena;
+  always @(posedge pll_25mhz)
+  begin
+    hsyncedge <= {epr_osd_vga_hsync, hsyncedge[1]};
+    lcd_line_ena <= hsyncedge == 2'b10 ? ~lcd_line_ena : lcd_line_ena;
+    lcd_pixel_ena <= lcd_line_ena ? ~lcd_pixel_ena : 0;
+  end
+
+  // XY centering
+  localparam c_offset_x = 23; // inc -> move picture left
+  localparam c_offset_y =  6; // inc -> move picture down
+  wire custom_blankn;
+  osd
+  #(
+    .c_x_start(c_offset_x),
+    .c_x_stop(c_offset_x+240+2),
+    .c_y_start(c_offset_y),
+    .c_y_stop(c_offset_y+240+2),
+    .c_x_bits(10),
+    .c_y_bits(10),
+    .c_transparency(0)
+  )
+  osd_custom_blank_inst
+  (
+    .clk_pixel(pll_25mhz),
+    .clk_pixel_ena(lcd_pixel_ena),
+    .i_hsync(epr_osd_vga_hsync),
+    .i_vsync(epr_osd_vga_vsync),
+    .i_blank(epr_osd_vga_blank),
+    .i_osd_en(0),
+    .o_osd_en(custom_blankn)
+  );
+  wire custom_blank = ~custom_blankn;
+
+  lcd_video
+  #(
+    .c_clk_spi_mhz(125),
+    .c_vga_sync(1),
+    .c_clk_phase(0),
+    .c_clk_polarity(1),
+    .c_x_size(240),
+    .c_y_size(240),
+    .c_init_file("st7789_linit.mem"),
+    .c_init_size(38)
+  )
+  lcd_video_inst
+  (
+    .reset(~btn[0]),
+    .clk_pixel(pll_25mhz),
+    .clk_pixel_ena(lcd_pixel_ena),
+    .clk_spi(pll_125mhz),
+    .clk_spi_ena(1),
+    .hsync(0), // not used
+    .vsync(epr_osd_vga_vsync),
+    .blank(custom_blank),
+    .color(lcd_color),
+    .spi_clk(oled_clk),
+    .spi_mosi(oled_mosi),
+    .spi_dc(oled_dc),
+    .spi_resn(oled_resn),
+    .spi_csn()
+  );
+  assign oled_csn=1; // 7-pin ST7789 (oled_csn is backlight enable)
 
 endmodule
