@@ -679,9 +679,9 @@ module top_ulx3s
 
   // ---------------- ST7789 LCD VIDEO -------------------
   wire [15:0] lcd_color;
-  assign lcd_color[15:11] = epr_osd_vga_r[7:2];
-  assign lcd_color[10:5]  = epr_osd_vga_g[7:1];
-  assign lcd_color[4:0]   = epr_osd_vga_b[7:2];
+  assign lcd_color[15:11] = epr_osd_vga_r[7:3];
+  assign lcd_color[10:5]  = epr_osd_vga_g[7:2];
+  assign lcd_color[4:0]   = epr_osd_vga_b[7:3];
 
   reg [1:0] hsyncedge;
   reg lcd_line_ena, lcd_pixel_ena;
